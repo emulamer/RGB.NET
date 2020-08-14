@@ -12,17 +12,20 @@ namespace EVGAProxy
 {
     public class EVGA64Proxy
     {
+        const int NUM_GPUS = 4;
+        const bool SLI_BRIDGE = true;
+        private static string ProcName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name;
         public static void Log(string msg)
         {
             try
             {
-                File.AppendAllText(Path.Combine(Path.GetTempPath(), "evgaproxy.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), $"evgaproxy.{ProcName}.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
             }
             catch {
                 System.Threading.Thread.Sleep(100);
                 try
                 {
-                    File.AppendAllText(Path.Combine(Path.GetTempPath(), "evgaproxy.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
+                    File.AppendAllText(Path.Combine(Path.GetTempPath(), $"evgaproxy.{ProcName}.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
                 }
                 catch { }
             }
@@ -191,54 +194,83 @@ namespace EVGAProxy
                         }
                         throw;
                     }
-
-                    foreach (var control in ledControls)
+                    //control type, gpu index, is sli bridge
+                    Action<int, bool> tryAddControlInstances = (gpuIdx, isSliBridge) =>
                     {
-                        var initializedProp = control.GetProperty("IsInitialized");
-                        if (initializedProp == null)
+                        foreach (var control in ledControls)
                         {
-                            //doesn't have IsInitialized
-                            continue;
-                        }
-                        object instance = null;
-                        try
-                        {
-
-                            var con = control.GetConstructor(new Type[] { typeof(uint), typeof(bool) });
-                            if (con == null)
+                            Log($"Trying to init {control.Name} with gpu index {gpuIdx} and is sli bridge: {isSliBridge}");
+                            var initializedProp = control.GetProperty("IsInitialized");
+                            if (initializedProp == null)
                             {
-                                con = control.GetConstructor(new Type[] { typeof(uint) });
+                                //doesn't have IsInitialized
+                                continue;
+                            }
+                            object instance = null;
+                            try
+                            {
+
+                                var con = control.GetConstructor(new Type[] { typeof(uint), typeof(bool) });
                                 if (con == null)
                                 {
-                                    //type doesn't have an expected constructor
-                                    continue;
+                                    con = control.GetConstructor(new Type[] { typeof(uint) });
+                                    if (con == null)
+                                    {
+                                        //type doesn't have an expected constructor
+                                        continue;
+                                    }
+                                    else
+                                    {
+                                        if (isSliBridge)
+                                        {
+                                            Log($"{control.Name} doesn't support SLI bridge, skipping for isSliBridge: {isSliBridge}");
+                                            continue;
+                                        }
+                                        instance = Activator.CreateInstance(control, new object[] { (uint)gpuIdx });
+                                    }
                                 }
                                 else
                                 {
-                                    instance = Activator.CreateInstance(control, new object[] { (uint)0 });
+                                    instance = Activator.CreateInstance(control, new object[] { (uint)gpuIdx, isSliBridge });
                                 }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"Exception trying to create instance of {control.Name} with gpu index {gpuIdx} and is sli bridge: {isSliBridge}: {ex.Message} {ex.StackTrace}");
+                                //exception creating instance
+                            }
+                            if (instance == null)
+                            {
+                                Log($"No instance of {control.Name} was created with gpu index {gpuIdx} and is sli bridge: {isSliBridge}");
+                                //failed to create instance
+
                             }
                             else
                             {
-                                instance = Activator.CreateInstance(control, new object[] { (uint)0, false });
+                                bool isInitted = (bool)initializedProp.GetValue(instance, null);
+                                if (isInitted)
+                                {
+                                    if ((uint)_zoneSupported.GetValue(instance, null) > 0)
+                                    {
+                                        Log($"Successfully added instance {control.Name} gpu index {gpuIdx} isslibridge: {isSliBridge}");
+                                        _instances.Add(instance);
+                                    } else
+                                    {
+                                        Log($"Instance has no supported zones, skipping {control.Name} gpu index {gpuIdx} isslibridge: {isSliBridge}");
+                                    }
+                                } else
+                                {
+                                    Log($"Instance not initted, skipping {control.Name} gpu index {gpuIdx} isslibridge: {isSliBridge}");
+                                }
                             }
                         }
-                        catch (Exception ex)
+                    };
+                    for (int gpuIdx = 0; gpuIdx < NUM_GPUS; gpuIdx++)
+                    {
+                        tryAddControlInstances(gpuIdx, false);
+                        if (SLI_BRIDGE)
                         {
-                            //exception creating instance
-                        }
-                        if (instance == null)
-                        {
-                            //failed to create instance
-
-                        }
-                        else
-                        {
-                            bool isInitted = (bool)initializedProp.GetValue(instance, null);
-                            if (isInitted && (uint)_zoneSupported.GetValue(instance, null) > 0)
-                            {
-                                _instances.Add(instance);
-                            }
+                            tryAddControlInstances(gpuIdx, true);
                         }
                     }
                 }

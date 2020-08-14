@@ -8,18 +8,19 @@ namespace RGB.NET.Devices.EVGA
 {
     public class EVGADeviceProviderLoader : IRGBDeviceProviderLoader
     {
+        private static string ProcName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name;
         public static void Log(string msg)
         {
             try
             {
-                File.AppendAllText(Path.Combine(Path.GetTempPath(), "evgaproxy.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), $"evgaproxy.{ProcName}.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
             }
             catch
             {
                 System.Threading.Thread.Sleep(100);
                 try
                 {
-                    File.AppendAllText(Path.Combine(Path.GetTempPath(), "evgaproxy.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
+                    File.AppendAllText(Path.Combine(Path.GetTempPath(), $"evgaproxy.{ProcName}.log"), DateTime.Now.ToString() + ": " + (msg ?? "") + "\r\n");
                 }
                 catch { }
             }
